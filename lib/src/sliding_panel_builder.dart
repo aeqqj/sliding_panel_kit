@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sliding_panel_kit/src/extent/extent.dart';
 import 'package:sliding_panel_kit/src/snap_animation/snap_animation.dart';
@@ -85,6 +86,7 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
 
   double snapPoint = 0.0;
 
+  final pointerTracker = _PointerTracker();
   final scrollAreaTracker = _ScrollAreaTracker();
   VelocityTracker? velocityTracker;
 
@@ -234,146 +236,214 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
 
   @override
   Widget build(BuildContext context) {
+    final viewId = View.of(context).viewId;
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         final ScrollNotification(:metrics, :context) = notification;
 
-        if (metrics.axis == Axis.horizontal || context == null) {
+        if (metrics.axis == .vertical || context == null) {
           return false;
         }
 
-        switch (notification) {
-          case ScrollStartNotification():
-            scrollAreaTracker.update(context.findRect());
-            break;
+        final canScroll = [
+          widget.minExtent,
+          snapPoint,
+          widget.maxExtent,
+        ].contains(controller.value);
 
-          case ScrollUpdateNotification(:final dragDetails):
-            final position = Scrollable.of(context).position;
-            final canScroll = [
-              widget.minExtent,
-              snapPoint,
-              widget.maxExtent,
-            ].contains(controller.value);
-
-            if (dragDetails == null) {
-              scrollAreaTracker.reset();
-              if (!canScroll) {
-                position.correctBy(-(notification.scrollDelta ?? 0.0));
-                position.hold(() {}).cancel();
-              }
+        if (canScroll) {
+          switch (notification) {
+            case ScrollStartNotification():
+              scrollAreaTracker.update(context.findRect());
+              pointerTracker.exceed();
               break;
-            }
 
-            final dy = dragDetails.delta.dy;
-
-            final ScrollPosition(
-              :outOfRange,
-              :axisDirection,
-              :pixels,
-              :minScrollExtent,
-              :maxScrollExtent,
-              :correctPixels,
-              :correctBy,
-            ) = position;
-
-            if (outOfRange) {
-              final correction = dy.abs();
-              if (pixels < minScrollExtent) {
-                if (pixels + correction >= minScrollExtent) {
-                  if (!canScroll) {
-                    correctPixels(minScrollExtent);
-                  }
-                  scrollAreaTracker.reset();
-                  break;
-                }
-                if (!canScroll) {
-                  correctBy(correction);
-                  scrollAreaTracker.reset();
-                  break;
-                }
-              } else {
-                if (pixels - correction <= maxScrollExtent) {
-                  if (!canScroll) {
-                    correctPixels(maxScrollExtent);
-                  }
-                  scrollAreaTracker.reset();
-                  break;
-                }
-                if (!canScroll) {
-                  correctBy(-correction);
-                  scrollAreaTracker.reset();
-                  break;
-                }
-              }
-            } else if (!canScroll) {
-              final correction = !axisDirection.reverse ? dy : -dy;
-              final newPixels = pixels + correction;
-              if (newPixels < minScrollExtent) {
-                correctPixels(minScrollExtent);
-              } else if (newPixels > maxScrollExtent) {
-                correctPixels(maxScrollExtent);
-              } else {
-                correctBy(correction);
-              }
+            case UserScrollNotification(direction: .idle) ||
+                ScrollEndNotification():
               scrollAreaTracker.reset();
+              pointerTracker.reset();
               break;
-            }
 
-            scrollAreaTracker.update(context.findRect());
-            break;
+            case _:
+          }
+        } else {
+          switch (notification) {
+            case ScrollUpdateNotification(:final dragDetails)
+                when !metrics.outOfRange:
+              final dx = dragDetails?.delta.dx;
 
-          case UserScrollNotification(direction: != .idle):
-            break;
+              if (dx != null) {
+                final position = Scrollable.of(context).position;
+                position.correctBy(dx);
+              }
 
-          case _:
-            scrollAreaTracker.reset();
+              break;
+
+            case _:
+          }
         }
 
         return false;
       },
-      child: Listener(
-        onPointerDown: (event) {
-          velocityTracker = VelocityTracker.withKind(event.kind);
-          drag(event.delta.dy);
-        },
-        onPointerMove: (event) {
-          if (scrollAreaTracker.contains(event.position)) {
-            return;
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          final ScrollNotification(:metrics, :context) = notification;
+
+          if (metrics.axis == .horizontal || context == null) {
+            return false;
           }
 
-          velocityTracker?.addPosition(event.timeStamp, event.position);
-          drag(event.delta.dy);
+          switch (notification) {
+            case ScrollStartNotification(:final dragDetails):
+              if (dragDetails == null) {
+                break;
+              }
+              scrollAreaTracker.update(context.findRect());
+              pointerTracker.exceed();
+              break;
+
+            case ScrollUpdateNotification(:final dragDetails):
+              final position = Scrollable.of(context).position;
+              final canScroll = [
+                widget.minExtent,
+                snapPoint,
+                widget.maxExtent,
+              ].contains(controller.value);
+
+              if (dragDetails == null) {
+                if (!canScroll) {
+                  position.correctBy(-(notification.scrollDelta ?? 0.0));
+                  position.hold(() {}).cancel();
+                }
+                break;
+              }
+
+              final dy = dragDetails.delta.dy;
+
+              final ScrollPosition(
+                :outOfRange,
+                :axisDirection,
+                :pixels,
+                :minScrollExtent,
+                :maxScrollExtent,
+                :correctPixels,
+                :correctBy,
+              ) = position;
+
+              if (outOfRange) {
+                final correction = dy.abs();
+                if (pixels < minScrollExtent) {
+                  if (pixels + correction >= minScrollExtent) {
+                    if (!canScroll) {
+                      correctPixels(minScrollExtent);
+                    }
+                    scrollAreaTracker.reset();
+                    break;
+                  }
+                  if (!canScroll) {
+                    correctBy(correction);
+                    scrollAreaTracker.reset();
+                    break;
+                  }
+                } else {
+                  if (pixels - correction <= maxScrollExtent) {
+                    if (!canScroll) {
+                      correctPixels(maxScrollExtent);
+                    }
+                    scrollAreaTracker.reset();
+                    break;
+                  }
+                  if (!canScroll) {
+                    correctBy(-correction);
+                    scrollAreaTracker.reset();
+                    break;
+                  }
+                }
+              } else if (!canScroll) {
+                final correction = !axisDirection.reverse ? dy : -dy;
+                final newPixels = pixels + correction;
+                if (newPixels < minScrollExtent) {
+                  correctPixels(minScrollExtent);
+                } else if (newPixels > maxScrollExtent) {
+                  correctPixels(maxScrollExtent);
+                } else {
+                  correctBy(correction);
+                }
+                scrollAreaTracker.reset();
+                break;
+              }
+
+              scrollAreaTracker.update(context.findRect());
+              break;
+
+            case UserScrollNotification(direction: != .idle):
+              break;
+
+            case OverscrollNotification():
+              scrollAreaTracker.reset();
+              break;
+
+            case _:
+              scrollAreaTracker.reset();
+              pointerTracker.reset();
+          }
+
+          return false;
         },
-        onPointerUp: (event) {
-          snap();
-        },
-        child: ValueListenableBuilder<double>(
-          valueListenable: controller,
-          builder: (context, value, child) {
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final availablePixels = constraints.biggest.height;
-
-                controller._availablePixels = availablePixels;
-
-                final maxHeight = availablePixels * widget.maxExtent;
-                final minHeight = availablePixels * widget.minExtent;
-
-                final travel = (maxHeight - minHeight) - widget._handleHeight;
-
-                final dy = (1 - controller.normalizedValue) * travel;
-
-                return Transform.translate(
-                  offset: Offset(0, dy),
-                  child: ConstrainedBox(
-                    constraints: constraints.copyWith(maxHeight: maxHeight),
-                    child: child,
-                  ),
-                );
-              },
-            );
+        child: Listener(
+          onPointerDown: (event) {
+            pointerTracker.start(context, event);
+            velocityTracker = VelocityTracker.withKind(event.kind);
+            drag(event.delta.dy);
           },
-          child: widget.builder(context, widget.handle),
+          onPointerMove: (event) {
+            if (scrollAreaTracker.contains(event.position)) {
+              return;
+            }
+
+            velocityTracker?.addPosition(event.timeStamp, event.position);
+
+            if (!pointerTracker.update(viewId, event)) {
+              return;
+            }
+
+            drag(event.delta.dy);
+          },
+          onPointerUp: (event) {
+            pointerTracker.reset();
+            if (!scrollAreaTracker.contains(event.position)) {
+              snap();
+            }
+            scrollAreaTracker.reset();
+          },
+          child: ValueListenableBuilder<double>(
+            valueListenable: controller,
+            builder: (context, value, child) {
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final availablePixels = constraints.biggest.height;
+
+                  controller._availablePixels = availablePixels;
+
+                  final maxHeight = availablePixels * widget.maxExtent;
+                  final minHeight = availablePixels * widget.minExtent;
+
+                  final travel = (maxHeight - minHeight) - widget._handleHeight;
+
+                  final dy = (1 - controller.normalizedValue) * travel;
+
+                  return Transform.translate(
+                    offset: Offset(0, dy),
+                    child: ConstrainedBox(
+                      constraints: constraints.copyWith(maxHeight: maxHeight),
+                      child: child,
+                    ),
+                  );
+                },
+              );
+            },
+            child: widget.builder(context, widget.handle),
+          ),
         ),
       ),
     );
@@ -396,6 +466,52 @@ extension on AxisDirection {
       return true;
     }
     return false;
+  }
+}
+
+final class _PointerTracker {
+  static const maxDistance = kTouchSlop + 1e-6;
+
+  double _distance = 0.0;
+
+  _PointerTracker();
+
+  bool isOverScrollable(BuildContext context, Offset position) {
+    final view = View.of(context);
+    final result = HitTestResult();
+
+    WidgetsBinding.instance.hitTestInView(result, position, view.viewId);
+
+    for (final entry in result.path) {
+      if (entry.target case RenderAbstractViewport()) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  void start(BuildContext context, PointerDownEvent event) {
+    if (isOverScrollable(context, event.position)) {
+      return;
+    }
+    exceed();
+  }
+
+  bool update(int viewId, PointerMoveEvent event) {
+    if (_distance >= maxDistance) {
+      return true;
+    }
+    _distance += event.delta.distance;
+    return false;
+  }
+
+  void exceed() {
+    _distance = maxDistance;
+  }
+
+  void reset() {
+    _distance = 0.0;
   }
 }
 
