@@ -1,7 +1,7 @@
 import 'dart:collection';
 import 'package:sliding_panel_kit/src/snap_animation/snap_animation.dart';
 
-final class SlidingPanelSnapConfig {
+final class SnapConfig {
   final List<double> _extents;
   final bool includeBoundaryExtents;
   final (double lower, double upper) velocityRange;
@@ -11,7 +11,7 @@ final class SlidingPanelSnapConfig {
     return UnmodifiableListView(_extents);
   }
 
-  SlidingPanelSnapConfig({
+  SnapConfig({
     List<double> extents = const [],
     this.includeBoundaryExtents = true,
     this.velocityRange = (500, 2500),
@@ -26,48 +26,15 @@ final class SlidingPanelSnapConfig {
          return lower > 0 && upper > 0 && lower < upper;
        }(), 'Invalid snap velocity range was specified.');
 
-  SlidingPanelSnapConfig copyWith({
+  SnapConfig copyWith({
     List<double>? extents,
     (double lower, double upper)? velocityRange,
     SnapAnimation? animation,
   }) {
-    return SlidingPanelSnapConfig(
+    return SnapConfig(
       extents: extents ?? _extents,
       velocityRange: velocityRange ?? this.velocityRange,
       animation: animation ?? this.animation,
     );
-  }
-
-  (int, double) findNearestExtent(double current) {
-    if (extents case []) {
-      return (-1, current);
-    }
-    return extents.indexed.reduce((e1, e2) {
-      final (_, a) = e1;
-      final (_, b) = e2;
-      return (current - a).abs() < (current - b).abs() ? e1 : e2;
-    });
-  }
-
-  double findNextExtent(double current, double velocity) {
-    final (lower, upper) = velocityRange;
-    final (index, extent) = findNearestExtent(current);
-    if (index case -1) {
-      return current;
-    }
-    final maxExtentIndex = extents.length - 1;
-    final ranges = [
-      ((double.negativeInfinity, -upper), maxExtentIndex),
-      ((-upper, -lower), index + 1),
-      ((-lower, lower), index),
-      ((lower, upper), index - 1),
-      ((upper, double.infinity), 0),
-    ];
-    final range = ranges.firstWhere((element) {
-      final ((lower, upper), _) = element;
-      return velocity > lower && velocity <= upper;
-    });
-    final (_, resultIndex) = range;
-    return extents[resultIndex.clamp(0, maxExtentIndex)];
   }
 }

@@ -4,15 +4,24 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sliding_panel_kit/src/snap_animation/snap_animation.dart';
+import 'package:sliding_panel_kit/src/snap_behavior/snap_behavior.dart';
 import 'package:sliding_panel_kit/src/snap_config/snap_config.dart';
+
+typedef SlidingPanelTransitionBuilder =
+    Widget Function(
+      BuildContext context,
+      ({double value, double normalized}) extent,
+      Widget child,
+    );
 
 final class SlidingPanelBuilder extends StatefulWidget {
   final SlidingPanelController? controller;
   final double minExtent;
   final double initialExtent;
-  final SlidingPanelSnapConfig snapConfig;
+  final SnapBehavior _snapBehavior;
   final PreferredSizeWidget? handle;
   final Widget Function(BuildContext context, Widget? handle) builder;
+  final SlidingPanelTransitionBuilder transitionBuilder;
 
   final double _handleHeight;
 
@@ -21,8 +30,9 @@ final class SlidingPanelBuilder extends StatefulWidget {
     this.controller,
     this.minExtent = 0.0,
     double? initialExtent,
-    SlidingPanelSnapConfig? snapConfig,
+    SnapConfig? snapConfig,
     this.handle,
+    this.transitionBuilder = defaultTransitionBuilder,
     required this.builder,
   }) : assert(
          minExtent >= 0 && minExtent <= 1,
@@ -33,11 +43,11 @@ final class SlidingPanelBuilder extends StatefulWidget {
          final value => value >= minExtent && value <= 1,
        }, 'Initial extent must be between $minExtent and 1.0 inclusive.'),
        initialExtent = initialExtent ?? minExtent,
-       snapConfig = _processSnapConfig(snapConfig, minExtent),
+       _snapBehavior = _processSnapBehavior(snapConfig, minExtent),
        _handleHeight = handle?.preferredSize.height ?? 0.0;
 
-  static SlidingPanelSnapConfig _processSnapConfig(
-    SlidingPanelSnapConfig? snapConfig,
+  static SnapBehavior _processSnapBehavior(
+    SnapConfig? snapConfig,
     double minExtent,
   ) {
     final boundaryExtents = switch (snapConfig?.includeBoundaryExtents) {
@@ -50,11 +60,19 @@ final class SlidingPanelBuilder extends StatefulWidget {
       'All snap points must be between $minExtent and 1.0 inclusive.',
     );
     snapPoints.sort();
-    return switch (snapConfig) {
-      null => SlidingPanelSnapConfig(extents: snapPoints),
-      _ => snapConfig.copyWith(extents: snapPoints),
-    };
+    return SnapBehavior(
+      config: switch (snapConfig) {
+        null => SnapConfig(extents: snapPoints),
+        _ => snapConfig.copyWith(extents: snapPoints),
+      },
+    );
   }
+
+  static Widget defaultTransitionBuilder(
+    BuildContext context,
+    ({double value, double normalized}) extent,
+    Widget child,
+  ) => child;
 
   @override
   State<SlidingPanelBuilder> createState() => _SlidingPanelBuilderState();
@@ -133,8 +151,8 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
     final extentChanged = oldWidget.minExtent != newExtent;
 
     final snapPointsChanged = !listEquals(
-      oldWidget.snapConfig.extents,
-      widget.snapConfig.extents,
+      oldWidget._snapBehavior.config.extents,
+      widget._snapBehavior.config.extents,
     );
 
     if (extentChanged || snapPointsChanged) {
@@ -177,8 +195,8 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
     final extent = controller.extent;
     final velocity = this.velocity;
 
-    final SlidingPanelSnapConfig(:findNextExtent, :animation) =
-        widget.snapConfig;
+    final SnapBehavior(:findNextExtent, config: SnapConfig(:animation)) =
+        widget._snapBehavior;
 
     final snapPoint = findNextExtent(extent, velocity);
 
@@ -431,9 +449,18 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
                       offset: Offset(0, dy),
                       child: Align(
                         alignment: .bottomCenter,
-                        child: ConstrainedBox(
-                          constraints: constraints,
-                          child: child,
+                        child: RepaintBoundary(
+                          child: widget.transitionBuilder(
+                            context,
+                            (
+                              value: controller._extent,
+                              normalized: controller.normalizedExtent,
+                            ),
+                            ConstrainedBox(
+                              constraints: constraints,
+                              child: child,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -444,7 +471,7 @@ final class _SlidingPanelBuilderState extends State<SlidingPanelBuilder>
             child: NotificationListener<SizeChangedLayoutNotification>(
               onNotification: (notification) {
                 updateChildSize();
-                return false;
+                return true;
               },
               child: SizeChangedLayoutNotifier(
                 key: childKey,
